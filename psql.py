@@ -1,23 +1,17 @@
 import psycopg2
 from config import database as db_config
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 
 
-def connect(**kwargs):
-    return connect_by(kwargs['host'], kwargs['port'], kwargs['database'], kwargs['username'], kwargs['password'])
+def connect(database, check):
+    host, port, database, username, password = \
+        database['host'], database['port'], database['database'], database['username'], database['password']
+    now_year, now_term, now_weeks, now_weekday, now_course_number, course_begin_time, course_end_time = \
+        check['year'], check['term'], \
+        check['weeks'], check['weekday'], \
+        check['course_number'], check['begin_time'], check['end_time']
 
-# 这些数据是实时获得的，需要手动修改
-now_year = 2017
-now_term = 3
-now_weeks = 1
-now_weekday = 3
-now_course_number = 1
-course_begin_time = '2017-07-06 10:10:00'
-course_end_time = '2017-07-06 11:00:00'
-
-
-def connect_by(host, port, database, username, password):
-    print("Connect to database to modify attendance data. YEAR = %s, TERM = %s, WEEK = %s, WEEKDAY = %s, COURSE = %s"
+    print("Connect to database to modify attendance data. YEAR = %s, TERM = %s, WEEK = %s, WEEKDAY = %s, COURSE = %s\n"
           % (now_year, now_term, now_weeks, now_weekday, now_course_number))
     conn = psycopg2.connect(host=host, port=port, database=database, user=username, password=password)
     cur = conn.cursor()
@@ -88,21 +82,24 @@ def connect_by(host, port, database, username, password):
             # 这里需要做一个防重复检测。
             # 首先查询attendance中是否存在date&course_number&student_id&course_manage_id一致的记录，如果存在，就选择更新该记录。
             # 如果不存在，就选择创建新记录。
-            sql = "select count(id) from main_attendancerecord " \
-                "where course_number = %s and date = '%s' and student_id = %s and course_manage_id = '%s';" \
+            sql = "select id from main_attendancerecord " \
+                "where course_number = %s and date = '%s' and student_id = %s and course_manage_id = '%s' limit 1;" \
                 % (now_course_number, today_date, student_id, course_id)
-            print(sql)
-            cur.execute()
-            print(cur.fetchall())
-            cur.execute()
-            sql = "insert into main_attendancerecord (course_number, status, student_id, course_manage_id, date) " \
-                  "values(%s, '%s', %s, '%s', '%s');" % (now_course_number, status, student_id, course_id, today_date)
             cur.execute(sql)
-
+            existed = cur.fetchall()
+            if len(existed) > 0:  # 存在，需要修改
+                print("Modify existed record.")
+                existed_id = existed[0][0]
+                sql = "update main_attendancerecord set status = '%s' where id = %s;" % (status, existed_id)
+                cur.execute(sql)
+            else:  # 不存在 创建
+                print("Create attendance record.")
+                sql = "insert into main_attendancerecord (course_number, status, student_id, course_manage_id, date) " \
+                    "values(%s, '%s', %s, '%s', '%s');" % (now_course_number, status, student_id, course_id, today_date)
+                cur.execute(sql)
         else:
             print("Not found course.")
-    # conn.commit()
+        print()
+    conn.commit()
     conn.close()
-
-if __name__ == '__main__':
-    connect(**db_config)
+    print("Connect close.")
